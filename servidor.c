@@ -10,20 +10,20 @@
 #include <time.h>
 
 //Variáveis globais
-pthread_mutex_t client_mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t log_mutex = PTHREAD_MUTEX_INITIALIZER;
-pthread_cond_t log_cond = PTHREAD_COND_INITIALIZER;
+static pthread_mutex_t client_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t log_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t log_cond = PTHREAD_COND_INITIALIZER;
 
-//vetor com os clientes
-client_info *clients = NULL;
-int num_clients = 0;
+//Vetor com os clientes
+static client_info *clients = NULL;
+static int num_clients = 0;
 
-//buffer do log
-log_entry *log_buffer = NULL;
-int log_count = 0;
-int log_capacity = 0;
+//Buffer do log
+static log_entry *log_buffer = NULL;
+static int log_count = 0;
+static int log_capacity = 0;
 
-aggregate_sum global_sum = {0};
+static struct requisicao_ack global_sum = {0, 0, 0};
 
 //Função para gerar timestamp
 void timestamp_to_str(char *buffer, size_t size) {
@@ -176,7 +176,7 @@ void* interface_thread(void *arg) {
 int main(int argc, char *argv[]) {
     //Verifica se foi passado a porta de entrada
     if (argc != 2) {
-        fprintf(stderr, "Uso: %s <porta>\n", argv[0]);
+        fprintf(stderr, "%s <porta>\n", argv[0]);
         exit(EXIT_FAILURE);
     }
 
@@ -236,16 +236,18 @@ int main(int argc, char *argv[]) {
                 data->pkt = pkt;
                 data->client_addr = client_addr;
                 
+                //Criando uma nova thread para lidar com as REQ
                 pthread_create(&thread, NULL, process_request, data);
+                //Liberando a thread ao final de sua execução
                 pthread_detach(thread);
                 break;
             }
                 
             default:
-                fprintf(stderr, "Pacote desconhecido: %d\n", pkt.type);
+                fprintf(stderr, "Tipo de pacote desconhecido: %d\n", pkt.type);
         }
     }
-
+    //Liberando a memoria
     close(sockfd);
     free(clients);
     free(log_buffer);

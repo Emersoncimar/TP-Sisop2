@@ -45,26 +45,6 @@ typedef struct {
     char message[256];
 } log_entry;
 
-//Variáveis globais com extern para ficarem visiveis, declaradas no.h pois nao sei se o cliente vai usalas
-extern pthread_mutex_t client_mutex;
-extern pthread_mutex_t log_mutex;
-extern pthread_cond_t log_cond;
-
-extern client_info *clients;
-extern int num_clients;
-
-extern log_entry *log_buffer;
-extern int log_count;
-extern int log_capacity;
-
-//Soma agregada
-typedef struct {
-    uint32_t num_reqs;
-    uint64_t total_sum;
-} aggregate_sum;
-
-extern aggregate_sum global_sum;
-
 //Estrutura para passar PACOTE e ENDEREÇO do cliente para o pthread_create
 typedef struct request_data {
     int sockfd;
@@ -72,8 +52,9 @@ typedef struct request_data {
     struct sockaddr_in client_addr;
 } request_data;
 
-// Protótipos de funções para gerar o timestamp no formato string e o log no buffer
+//Timestamp no formato string
 void timestamp_to_str(char *buffer, size_t size);
+//Adicionar os logs no buffer
 void add_log_entry(const char *message);
 
 #endif

@@ -13,12 +13,14 @@
 
 #define TIMEOUT_MS 10
 
-//Variáveis globais
+//struct para informações do servidor
 struct sockaddr_in server_addr;
+//Flag indicando se o servidor foi encontrado
 int server_found = 0;
 int sockfd;
 uint32_t current_seq = 1;
 
+//Função de timestamp novamente
 void print_timestamp() {
     time_t now = time(NULL);
     struct tm *tm_info = localtime(&now);
@@ -28,36 +30,38 @@ void print_timestamp() {
 }
 
 
-//SUBSERVIÇO DE DESCOBERTA
+//Subserviço de descoberta
 void discover_server(int port) {
+    //Configurando o Broadcast
     struct sockaddr_in broadcast_addr = {
         .sin_family = AF_INET,
         .sin_port = htons(port),
         .sin_addr.s_addr = INADDR_BROADCAST
     };
     
+    //Inicia o pacote DESC
     packet pkt;
     pkt.type = DESC;
     pkt.seqn = 0;
     
-    // Envia pacote de descoberta
+    //Envia pacote DESC
     sendto(sockfd, &pkt, sizeof(pkt), 0,
            (struct sockaddr*)&broadcast_addr, sizeof(broadcast_addr));
     
-    // Configura timeout
+    //Configura timeout
     struct timeval tv;
     tv.tv_sec = 0;
     tv.tv_usec = TIMEOUT_MS * 1000;
     setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
     
-    // Espera resposta
     struct sockaddr_in from;
     socklen_t from_len = sizeof(from);
-    
+    //Esperando alguma resposta do servidor
     while (!server_found) {
         ssize_t n = recvfrom(sockfd, &pkt, sizeof(pkt), 0,
                             (struct sockaddr*)&from, &from_len);
-        
+
+        //Verificando se o pkt é do tipo DESC_ACK e guardando o IP do servidor
         if (n > 0 && pkt.type == DESC_ACK) {
             server_addr = from;
             server_found = 1;
@@ -68,41 +72,43 @@ void discover_server(int port) {
         }
     }
     
-    // Remove timeout
+    //Remove timeout
     tv.tv_sec = 0;
     tv.tv_usec = 0;
     setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 }
 
-//SUBSERVIÇO DE PROCESSAMENTO
+//Subserviço de processamento
 void send_request(uint32_t value) {
     packet pkt;
     pkt.type = REQ;
     pkt.seqn = current_seq;
     pkt.payload.req.value = value;
     
-    // Envia requisição
+    //Envia requisição para o servidor
     sendto(sockfd, &pkt, sizeof(pkt), 0,
            (struct sockaddr*)&server_addr, sizeof(server_addr));
     
-    // Configura timeout
+    //timeout
     struct timeval tv;
     tv.tv_sec = 0;
     tv.tv_usec = TIMEOUT_MS * 1000;
     setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
     
-    // Espera resposta
+    //Espera resposta do servidor
     packet ack_pkt;
     struct sockaddr_in from;
     socklen_t from_len = sizeof(from);
     
     while (1) {
+        //recebe o pacote do servidor
         ssize_t n = recvfrom(sockfd, &ack_pkt, sizeof(ack_pkt), 0,
                             (struct sockaddr*)&from, &from_len);
         
+        //Verificando se um pkt REQ_ACK e se a sua sequencia é valida 
         if (n > 0 && ack_pkt.type == REQ_ACK && 
             ack_pkt.payload.ack.seqn == current_seq) {
-            // Resposta recebida
+            //Resposta recebida
             print_timestamp();
             printf("server %s id_req %u value %u num_reqs %u total_sum %lu\n",
                    inet_ntoa(server_addr.sin_addr),
@@ -112,26 +118,26 @@ void send_request(uint32_t value) {
             
             current_seq++;
             break;
+            //Se ocorre o timeout ele sai do loop e reenvia a REQ
         } else if (n < 0 && errno == EAGAIN) {
-            // Timeout - reenvia
             sendto(sockfd, &pkt, sizeof(pkt), 0,
                    (struct sockaddr*)&server_addr, sizeof(server_addr));
         }
     }
     
-    // Remove timeout
+    //Remove timeout
     tv.tv_sec = 0;
     tv.tv_usec = 0;
     setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 }
 
-//SUBSERVIÇO DE INTERFACE
+//Subserviço de interface
 void* input_thread(void *arg) {
     char buffer[256];
     
     while (fgets(buffer, sizeof(buffer), stdin)) {
         if (!server_found) {
-            fprintf(stderr, "Servidor não encontrado ainda\n");
+            fprintf(stderr, "Servidor não encontrado\n");
             continue;
         }
         
@@ -146,29 +152,25 @@ void* input_thread(void *arg) {
 
 int main(int argc, char *argv[]) {
     if (argc != 2) {
-        fprintf(stderr, "Uso: %s <porta>\n", argv[0]);
+        fprintf(stderr, "%s <porta>\n", argv[0]);
         exit(EXIT_FAILURE);
     }
     
     int port = atoi(argv[1]);
     sockfd = socket(AF_INET, SOCK_DGRAM, 0);
     
-    // Habilita broadcast
+    //Habilitando broadcast
     int broadcast = 1;
     setsockopt(sockfd, SOL_SOCKET, SO_BROADCAST, &broadcast, sizeof(broadcast));
     
-    // Descobre servidor
+    //Descobrindo o servidor
     discover_server(port);
     
-    // Inicia thread de entrada
+    //Inicia thread de entrada
     pthread_t thread;
     pthread_create(&thread, NULL, input_thread, NULL);
-    
-    // Loop para receber mensagens (se necessário)
-    while (1) {
-        // O cliente principal pode ficar ocioso ou tratar outras mensagens
-        sleep(1);
-    }
+    //Join esperando a thread principal terminar
+    pthread_join(thread, NULL);
     
     close(sockfd);
     return 0;
